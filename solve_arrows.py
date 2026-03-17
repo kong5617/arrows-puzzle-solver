@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import sys
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -16,7 +17,7 @@ import numpy as np
 from PIL import Image
 
 CLAUDE_MODEL = "claude-opus-4-6"
-AXIS_TOLERANCE = 20  # px — perpendicular-axis alignment threshold (~2% of 1080px width)
+AXIS_TOLERANCE = 15  # px — perpendicular-axis alignment threshold (~1.4% of 1080px width)
 
 DIRECTION_COLORS_BGR = {
     "right": (0, 200, 0),
@@ -110,12 +111,21 @@ def detect_arrows(image_path: str, api_key: str, output_dir: str | None = None) 
     client = anthropic.Anthropic(api_key=api_key)
 
     def call_api(messages):
-        return client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=4096,
-            system=_DETECT_PROMPT,
-            messages=messages,
-        )
+        for attempt in range(5):
+            try:
+                return client.messages.create(
+                    model=CLAUDE_MODEL,
+                    max_tokens=4096,
+                    system=_DETECT_PROMPT,
+                    messages=messages,
+                )
+            except anthropic.APIStatusError as exc:
+                if exc.status_code == 529 and attempt < 4:
+                    wait = 10 * (2 ** attempt)
+                    print(f"  API overloaded, retrying in {wait}s (attempt {attempt + 1}/5)...")
+                    time.sleep(wait)
+                else:
+                    raise
 
     initial_messages = [
         {
@@ -353,13 +363,18 @@ def main() -> None:
     ordered, stuck = solve_order(arrows)
 
     if stuck:
-        print(f"Warning: {len(stuck)} arrows could not be ordered (cycle detected):", file=sys.stderr)
+        print(f"Warning: {len(stuck)} arrows could not be auto-ordered (detection cycle) — "
+              f"they will be appended at the end of the XML as manual taps:", file=sys.stderr)
         for a in stuck:
             print(f"  ({a['x']}, {a['y']}) {a['direction']}", file=sys.stderr)
 
-    # Attach tap_index for visualization and XML
+    # Attach tap_index for visualization and XML (ordered first, then stuck)
     for i, a in enumerate(ordered):
         a["tap_index"] = i + 1
+    for i, a in enumerate(stuck):
+        a["tap_index"] = len(ordered) + i + 1
+
+    all_arrows = ordered + stuck
 
     # Build solution dict
     solution = {
@@ -376,28 +391,24 @@ def main() -> None:
             json.dump(solution, f, indent=2)
         print(f"  Solution JSON: {json_path}")
 
-        # Write visualization
+        # Write visualization (include stuck arrows too)
         viz_path = os.path.join(output_dir, f"{base}_detected.png")
-        draw_visualization(image_path, ordered, viz_path)
+        draw_visualization(image_path, all_arrows, viz_path)
         print(f"  Visualization: {viz_path}")
-
-        if stuck:
-            print("Cannot generate Tasker XML: cycle detected in arrow dependencies.", file=sys.stderr)
-            sys.exit(1)
     else:
         print("Tap sequence (dry-run):")
         for a in ordered:
             print(f"  {a['tap_index']}. ({a['x']}, {a['y']}) -> {a['direction']}")
         if stuck:
-            print("Cycle detected — the above arrows could be ordered, but the following could not:", file=sys.stderr)
+            print(f"\n  [Manual] {len(stuck)} stuck arrow(s) — verify in visualization and tap manually:")
             for a in stuck:
-                print(f"  ({a['x']}, {a['y']}) {a['direction']}", file=sys.stderr)
-            print("Cannot generate Tasker XML.", file=sys.stderr)
-            sys.exit(1)
+                print(f"  {a['tap_index']}. ({a['x']}, {a['y']}) -> {a['direction']}  *** MANUAL ***")
+        print(f"\nTasker XML would be written to: {os.path.join(output_dir, base + '_tasker.xml')}")
+        return
 
-    # Stage 3: Generate XML
+    # Stage 3: Generate XML (all arrows; stuck ones included as regular taps at the end)
     task_name = f"Solve Arrows - {base}"
-    xml = build_tasker_xml(task_name, ordered, delay_ms=args.delay)
+    xml = build_tasker_xml(task_name, all_arrows, delay_ms=args.delay)
 
     if not args.dry_run:
         xml_path = os.path.join(output_dir, f"{base}_tasker.xml")
