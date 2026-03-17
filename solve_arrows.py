@@ -287,7 +287,29 @@ def build_tasker_xml(task_name: str, tap_order: list[dict], delay_ms: int) -> st
 </TaskerData>"""
 
 
-def draw_visualization(image_path: str, tap_order: list[dict], out_path: str) -> None: ...
+def draw_visualization(image_path: str, tap_order: list[dict], out_path: str) -> None:
+    """Draw numbered, colored overlays on image and save to out_path."""
+    img = cv2.imread(image_path)
+    if img is None:
+        # Fall back to Pillow for unsupported formats
+        pil_img = Image.open(image_path).convert("RGB")
+        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+    for arrow in tap_order:
+        x, y = arrow["x"], arrow["y"]
+        direction = arrow["direction"]
+        idx = arrow["tap_index"]
+        color = DIRECTION_COLORS_BGR[direction]
+        dx, dy = DIRECTION_VECTORS[direction]
+
+        # Circle
+        cv2.circle(img, (x, y), 15, color, 3)
+        # Direction indicator line
+        cv2.arrowedLine(img, (x, y), (x + dx * 30, y + dy * 30), color, 2)
+        # Tap order number (white, centered in circle)
+        cv2.putText(img, str(idx), (x - 7, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+    cv2.imwrite(out_path, img)
 
 
 def main() -> None: ...
