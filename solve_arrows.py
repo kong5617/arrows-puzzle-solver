@@ -37,7 +37,8 @@ _DETECT_PROMPT = (
     "You are analyzing a mobile puzzle screenshot.\n"
     "Return ONLY a JSON array. No prose, no markdown fences.\n"
     'Each element: {"x": <int>, "y": <int>, "direction": "up"|"down"|"left"|"right"}\n'
-    "x and y are the pixel coordinates of the arrow's center in the ORIGINAL image.\n"
+    "x and y are the pixel coordinates of the arrow's CENTER in the ORIGINAL image.\n"
+    "Be as precise as possible — measure to the nearest pixel.\n"
     "Include every arrow visible in the puzzle area. Exclude UI (header, stars, hint buttons)."
 )
 
@@ -137,6 +138,44 @@ def detect_arrows(image_path: str, api_key: str, output_dir: str | None = None) 
         }
     ]
 
+    def cluster_1d(values: list[int], gap: int) -> list[list[int]]:
+        """Split a sorted list of ints into clusters separated by gaps > `gap`."""
+        if not values:
+            return []
+        clusters: list[list[int]] = [[values[0]]]
+        for v in values[1:]:
+            if v - clusters[-1][-1] > gap:
+                clusters.append([])
+            clusters[-1].append(v)
+        return clusters
+
+    def snap_to_grid(arrows: list[dict]) -> list[dict]:
+        """Cluster noisy x/y coords into logical columns/rows; add col/row indices."""
+        if not arrows:
+            return arrows
+        # Choose a gap slightly smaller than AXIS_TOLERANCE to merge near-identical coords
+        # but large enough that arrows in separate maze corridors stay separate.
+        gap = max(AXIS_TOLERANCE - 1, 5)
+
+        xs = sorted({a["x"] for a in arrows})
+        x_clusters = cluster_1d(xs, gap)
+        x_map = {x: round(sum(c) / len(c)) for c in x_clusters for x in c}
+        x_centers = sorted({x_map[x] for x in xs})
+        col_of = {cx: i for i, cx in enumerate(x_centers)}
+
+        ys = sorted({a["y"] for a in arrows})
+        y_clusters = cluster_1d(ys, gap)
+        y_map = {y: round(sum(c) / len(c)) for c in y_clusters for y in c}
+        y_centers = sorted({y_map[y] for y in ys})
+        row_of = {cy: i for i, cy in enumerate(y_centers)}
+
+        result = []
+        for a in arrows:
+            sx, sy = x_map[a["x"]], y_map[a["y"]]
+            result.append({**a, "x": sx, "y": sy,
+                           "col": col_of[sx], "row": row_of[sy]})
+        return result
+
     response = call_api(initial_messages)
     raw = response.content[0].text.strip()
 
@@ -162,14 +201,30 @@ def detect_arrows(image_path: str, api_key: str, output_dir: str | None = None) 
             print(f"Error: API returned invalid JSON after retry. Raw response saved to {err_path}", file=sys.stderr)
             sys.exit(1)
 
-    return validate_arrows(arrows, img_w, img_h)
+    validated = validate_arrows(arrows, img_w, img_h)
+    return snap_to_grid(validated)
 
 
 def blocks_arrow(a: dict, b: dict) -> bool:
-    """Return True if arrow b is in the travel path of arrow a."""
+    """Return True if arrow b is in the travel path of arrow a.
+
+    Uses exact grid indices (col/row) when both arrows carry them — zero tolerance,
+    no false positives.  Falls back to pixel-distance tolerance for legacy inputs.
+    """
     if a is b:
         return False
     direction = a["direction"]
+    if "col" in a and "col" in b:
+        # Grid-mode: exact column/row match — two arrows can never share a cell
+        if direction == "right":
+            return a["row"] == b["row"] and b["col"] > a["col"]
+        if direction == "left":
+            return a["row"] == b["row"] and b["col"] < a["col"]
+        if direction == "up":
+            return a["col"] == b["col"] and b["row"] < a["row"]
+        if direction == "down":
+            return a["col"] == b["col"] and b["row"] > a["row"]
+    # Pixel-tolerance fallback (legacy flat-array responses)
     if direction == "right":
         return abs(a["y"] - b["y"]) <= AXIS_TOLERANCE and b["x"] > a["x"]
     if direction == "left":
