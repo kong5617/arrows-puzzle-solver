@@ -68,9 +68,9 @@ def solve_order(arrows: list[dict]) -> tuple[list[dict], list[dict]]:
             # No progress possible — cycle detected
             return ordered, remaining
         # Add all unblocked arrows (stable order preserves input order within batch)
-        for a in unblocked:
-            ordered.append(a)
-            remaining.remove(a)
+        ordered.extend(unblocked)
+        unblocked_ids = {id(a) for a in unblocked}
+        remaining = [r for r in remaining if id(r) not in unblocked_ids]
 
     return ordered, []
 def build_autoinput_action(act_idx: int, x: int, y: int) -> str: ...
