@@ -306,8 +306,12 @@ def draw_visualization(image_path: str, tap_order: list[dict], out_path: str) ->
         cv2.circle(img, (x, y), 15, color, 3)
         # Direction indicator line
         cv2.arrowedLine(img, (x, y), (x + dx * 30, y + dy * 30), color, 2)
-        # Tap order number (white, centered in circle)
-        cv2.putText(img, str(idx), (x - 7, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        # Tap order number (white, ~14pt, centered in circle)
+        label = str(idx)
+        font_scale = 0.55
+        thickness = 2
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+        cv2.putText(img, label, (x - tw // 2, y + th // 2), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
 
     cv2.imwrite(out_path, img)
 
