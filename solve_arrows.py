@@ -35,8 +35,44 @@ DIRECTION_VECTORS = {
 # Populated in later tasks
 def detect_arrows(image_path: str, api_key: str, output_dir: str | None = None) -> list[dict]: ...
 def validate_arrows(arrows: list, img_w: int, img_h: int) -> list[dict]: ...
-def blocks_arrow(a: dict, b: dict) -> bool: ...
-def solve_order(arrows: list[dict]) -> tuple[list[dict], list[dict]]: ...
+def blocks_arrow(a: dict, b: dict) -> bool:
+    """Return True if arrow b is in the travel path of arrow a."""
+    if a is b:
+        return False
+    direction = a["direction"]
+    if direction == "right":
+        return abs(a["y"] - b["y"]) <= AXIS_TOLERANCE and b["x"] > a["x"]
+    if direction == "left":
+        return abs(a["y"] - b["y"]) <= AXIS_TOLERANCE and b["x"] < a["x"]
+    if direction == "up":
+        return abs(a["x"] - b["x"]) <= AXIS_TOLERANCE and b["y"] < a["y"]
+    if direction == "down":
+        return abs(a["x"] - b["x"]) <= AXIS_TOLERANCE and b["y"] > a["y"]
+    return False
+def solve_order(arrows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """
+    Return (ordered_tap_list, stuck_arrows).
+    ordered_tap_list: arrows in safe tap order.
+    stuck_arrows: non-empty only if a cycle prevents full resolution.
+    """
+    remaining = list(arrows)
+    ordered = []
+
+    while remaining:
+        # Recompute unblocked arrows fresh each iteration
+        unblocked = [
+            a for a in remaining
+            if not any(blocks_arrow(a, b) for b in remaining if b is not a)
+        ]
+        if not unblocked:
+            # No progress possible — cycle detected
+            return ordered, remaining
+        # Add all unblocked arrows (stable order preserves input order within batch)
+        for a in unblocked:
+            ordered.append(a)
+            remaining.remove(a)
+
+    return ordered, []
 def build_autoinput_action(act_idx: int, x: int, y: int) -> str: ...
 def build_wait_action(act_idx: int, delay_ms: int) -> str: ...
 def build_tasker_xml(task_name: str, tap_order: list[dict], delay_ms: int) -> str: ...
