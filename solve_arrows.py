@@ -319,7 +319,98 @@ def draw_visualization(image_path: str, tap_order: list[dict], out_path: str) ->
         raise IOError(f"Failed to write visualization to {out_path}")
 
 
-def main() -> None: ...
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Arrows Puzzle Solver — generate Tasker XML from screenshot")
+    parser.add_argument("screenshot", help="Path to puzzle screenshot (PNG or JPG)")
+    parser.add_argument("--delay", type=int, default=800, help="Milliseconds between taps (default: 800)")
+    parser.add_argument("--api-key", dest="api_key", default=None, help="Anthropic API key (overrides ANTHROPIC_API_KEY env var)")
+    parser.add_argument("--output-dir", dest="output_dir", default=None, help="Output directory (default: same as input)")
+    parser.add_argument("--dry-run", action="store_true", help="Print tap sequence; skip writing files (API call still made)")
+    args = parser.parse_args()
+
+    # Resolve API key: CLI flag takes precedence over env var
+    api_key = args.api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("Error: No API key provided. Use --api-key or set ANTHROPIC_API_KEY.", file=sys.stderr)
+        sys.exit(1)
+
+    image_path = args.screenshot
+    if not os.path.exists(image_path):
+        print(f"Error: File not found: {image_path}", file=sys.stderr)
+        sys.exit(1)
+
+    base = Path(image_path).stem
+    output_dir = args.output_dir or str(Path(image_path).parent)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Stage 1: Detect
+    print(f"Detecting arrows in {image_path} ...")
+    arrows = detect_arrows(image_path, api_key, output_dir=output_dir)
+    print(f"  Detected {len(arrows)} arrows.")
+
+    # Stage 2: Solve
+    print("Solving tap order...")
+    ordered, stuck = solve_order(arrows)
+
+    if stuck:
+        print(f"Warning: {len(stuck)} arrows could not be ordered (cycle detected):", file=sys.stderr)
+        for a in stuck:
+            print(f"  ({a['x']}, {a['y']}) {a['direction']}", file=sys.stderr)
+
+    # Attach tap_index for visualization and XML
+    for i, a in enumerate(ordered):
+        a["tap_index"] = i + 1
+
+    # Build solution dict
+    solution = {
+        "total_arrows": len(arrows),
+        "tap_order": [{"tap_index": a["tap_index"], "x": a["x"], "y": a["y"], "direction": a["direction"]} for a in ordered],
+    }
+    if stuck:
+        solution["stuck_arrows"] = [{"x": a["x"], "y": a["y"], "direction": a["direction"]} for a in stuck]
+
+    if not args.dry_run:
+        # Write solution JSON
+        json_path = os.path.join(output_dir, f"{base}_solution.json")
+        with open(json_path, "w") as f:
+            json.dump(solution, f, indent=2)
+        print(f"  Solution JSON: {json_path}")
+
+        # Write visualization
+        viz_path = os.path.join(output_dir, f"{base}_detected.png")
+        draw_visualization(image_path, ordered, viz_path)
+        print(f"  Visualization: {viz_path}")
+    else:
+        print("Tap sequence (dry-run):")
+        for a in ordered:
+            print(f"  {a['tap_index']}. ({a['x']}, {a['y']}) -> {a['direction']}")
+
+    if stuck:
+        print("Cannot generate Tasker XML: cycle detected in arrow dependencies.", file=sys.stderr)
+        sys.exit(1)
+
+    # Stage 3: Generate XML
+    task_name = f"Solve Arrows - {base}"
+    xml = build_tasker_xml(task_name, ordered, delay_ms=args.delay)
+
+    if not args.dry_run:
+        xml_path = os.path.join(output_dir, f"{base}_tasker.xml")
+        with open(xml_path, "w", encoding="utf-8") as f:
+            f.write(xml)
+        print(f"  Tasker XML: {xml_path}")
+    else:
+        print(f"\nTasker XML would be written to: {os.path.join(output_dir, base + '_tasker.xml')}")
+        return
+
+    # Print verification instructions
+    if ordered:
+        sample = ordered[len(ordered) // 2]
+        print(f"""
+Verify tap accuracy before running the full task:
+1. Note the arrow near the center of the puzzle (~tap {sample['tap_index']})
+2. In Tasker, create a single-tap test action at ({sample['x']}, {sample['y']})
+3. Run it and confirm it lands on that arrow
+If off, check that your screenshot was taken on-device at native resolution.""")
 
 if __name__ == "__main__":
     main()
