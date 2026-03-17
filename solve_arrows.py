@@ -32,6 +32,19 @@ DIRECTION_VECTORS = {
     "down":  (0, 1),
 }
 
+_DETECT_PROMPT = (
+    "You are analyzing a mobile puzzle screenshot.\n"
+    "Return ONLY a JSON array. No prose, no markdown fences.\n"
+    'Each element: {"x": <int>, "y": <int>, "direction": "up"|"down"|"left"|"right"}\n'
+    "x and y are the pixel coordinates of the arrow's center in the ORIGINAL image.\n"
+    "Include every arrow visible in the puzzle area. Exclude UI (header, stars, hint buttons)."
+)
+
+_RETRY_PROMPT_TEMPLATE = (
+    "Your previous response was not valid JSON. Return ONLY the raw JSON array with no "
+    "surrounding text. Previous response: {raw}"
+)
+
 _RELEVANT_VARIABLES = (
     '&lt;StringArray sr=""&gt;'
     '&lt;_array_net.dinglisch.android.tasker.RELEVANT_VARIABLES0&gt;%ailastbounds\n'
@@ -53,9 +66,93 @@ _RELEVANT_VARIABLES = (
     '&lt;/StringArray&gt;'
 )
 
-# Populated in later tasks
-def detect_arrows(image_path: str, api_key: str, output_dir: str | None = None) -> list[dict]: ...
-def validate_arrows(arrows: list, img_w: int, img_h: int) -> list[dict]: ...
+def validate_arrows(arrows: list, img_w: int, img_h: int) -> list[dict]:
+    """Validate and return arrows list. Raises ValueError on bad data, SystemExit if empty."""
+    if not arrows:
+        print(
+            "Error: No arrows detected. The model returned an empty list.\n"
+            "This may mean the screenshot is not of the expected puzzle type,\n"
+            "or the model incorrectly excluded all arrows as UI elements.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    valid_directions = {"up", "down", "left", "right"}
+    for i, arrow in enumerate(arrows):
+        for key in ("x", "y", "direction"):
+            if key not in arrow:
+                raise ValueError(f"Arrow {i} missing required key '{key}': {arrow}")
+        if arrow["direction"] not in valid_directions:
+            raise ValueError(
+                f"Unexpected direction '{arrow['direction']}' in arrow {i}. "
+                f"Expected: up, down, left, right. "
+                f"Try re-running or adjusting the prompt."
+            )
+        if not (0 <= arrow["x"] <= img_w) or not (0 <= arrow["y"] <= img_h):
+            raise ValueError(
+                f"Arrow {i} coordinates ({arrow['x']}, {arrow['y']}) out of bounds "
+                f"for image size {img_w}x{img_h}."
+            )
+    return arrows
+
+
+def detect_arrows(image_path: str, api_key: str, output_dir: str | None = None) -> list[dict]:
+    """Call Claude Vision to detect arrows. Returns validated list of arrow dicts."""
+    img = Image.open(image_path)
+    img_w, img_h = img.size
+
+    with open(image_path, "rb") as f:
+        img_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
+
+    suffix = Path(image_path).suffix.lower().lstrip(".")
+    media_type = "image/png" if suffix == "png" else "image/jpeg"
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    def call_api(messages):
+        return client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=4096,
+            system=_DETECT_PROMPT,
+            messages=messages,
+        )
+
+    initial_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_b64}},
+                {"type": "text", "text": "List all arrows in this puzzle screenshot."},
+            ],
+        }
+    ]
+
+    response = call_api(initial_messages)
+    raw = response.content[0].text.strip()
+
+    try:
+        arrows = json.loads(raw)
+    except json.JSONDecodeError:
+        # Retry once with the failed response for self-correction
+        retry_messages = initial_messages + [
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": _RETRY_PROMPT_TEMPLATE.format(raw=raw)},
+        ]
+        retry_response = call_api(retry_messages)
+        raw = retry_response.content[0].text.strip()
+        try:
+            arrows = json.loads(raw)
+        except json.JSONDecodeError:
+            # Save error file and exit
+            base = Path(image_path).stem
+            err_dir = output_dir or str(Path(image_path).parent)
+            err_path = os.path.join(err_dir, f"{base}_api_error.txt")
+            with open(err_path, "w") as f:
+                f.write(raw)
+            print(f"Error: API returned invalid JSON after retry. Raw response saved to {err_path}", file=sys.stderr)
+            sys.exit(1)
+
+    return validate_arrows(arrows, img_w, img_h)
 def blocks_arrow(a: dict, b: dict) -> bool:
     """Return True if arrow b is in the travel path of arrow a."""
     if a is b:
