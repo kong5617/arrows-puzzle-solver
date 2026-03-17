@@ -299,6 +299,8 @@ def draw_visualization(image_path: str, tap_order: list[dict], out_path: str) ->
         x, y = arrow["x"], arrow["y"]
         direction = arrow["direction"]
         idx = arrow["tap_index"]
+        if direction not in DIRECTION_COLORS_BGR:
+            raise ValueError(f"Arrow at ({x}, {y}) has unknown direction '{direction}'")
         color = DIRECTION_COLORS_BGR[direction]
         dx, dy = DIRECTION_VECTORS[direction]
 
@@ -313,7 +315,8 @@ def draw_visualization(image_path: str, tap_order: list[dict], out_path: str) ->
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
         cv2.putText(img, label, (x - tw // 2, y + th // 2), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
 
-    cv2.imwrite(out_path, img)
+    if not cv2.imwrite(out_path, img):
+        raise IOError(f"Failed to write visualization to {out_path}")
 
 
 def main() -> None: ...

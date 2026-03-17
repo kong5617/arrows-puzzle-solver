@@ -25,3 +25,16 @@ def test_visualization_preserves_dimensions(tmp_path):
     out = cv2.imread(out_path)
     assert out.shape[0] == 2376
     assert out.shape[1] == 1080
+
+
+def test_visualization_draws_on_image(tmp_path):
+    """Output image must differ from all-white input — confirms drawing actually happened."""
+    import numpy as np
+    img_path = str(tmp_path / "puzzle.png")
+    out_path = str(tmp_path / "puzzle_detected.png")
+    Image.new("RGB", (1080, 2376), "white").save(img_path)
+    arrows = [{"x": 200, "y": 300, "direction": "right", "tap_index": 1}]
+    draw_visualization(img_path, arrows, out_path)
+    out = cv2.imread(out_path)
+    # At least some pixels must be non-white (drawing occurred)
+    assert not np.all(out == 255)
