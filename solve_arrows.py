@@ -380,14 +380,20 @@ def main() -> None:
         viz_path = os.path.join(output_dir, f"{base}_detected.png")
         draw_visualization(image_path, ordered, viz_path)
         print(f"  Visualization: {viz_path}")
+
+        if stuck:
+            print("Cannot generate Tasker XML: cycle detected in arrow dependencies.", file=sys.stderr)
+            sys.exit(1)
     else:
         print("Tap sequence (dry-run):")
         for a in ordered:
             print(f"  {a['tap_index']}. ({a['x']}, {a['y']}) -> {a['direction']}")
-
-    if stuck:
-        print("Cannot generate Tasker XML: cycle detected in arrow dependencies.", file=sys.stderr)
-        sys.exit(1)
+        if stuck:
+            print("Cycle detected — the above arrows could be ordered, but the following could not:", file=sys.stderr)
+            for a in stuck:
+                print(f"  ({a['x']}, {a['y']}) {a['direction']}", file=sys.stderr)
+            print("Cannot generate Tasker XML.", file=sys.stderr)
+            sys.exit(1)
 
     # Stage 3: Generate XML
     task_name = f"Solve Arrows - {base}"
