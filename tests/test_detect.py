@@ -28,8 +28,9 @@ def test_validate_rejects_out_of_bounds():
         validate_arrows(arrows, img_w=1080, img_h=2376)
 
 def test_validate_rejects_empty_list():
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc_info:
         validate_arrows([], img_w=1080, img_h=2376)
+    assert exc_info.value.code == 1
 
 # --- detect_arrows tests (mocked API) ---
 
@@ -87,7 +88,8 @@ def test_detect_arrows_exits_after_two_bad_responses(mocker, tmp_path):
     img_path = str(tmp_path / "test.png")
     Image.new("RGB", (1080, 2376), "white").save(img_path)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc_info:
         detect_arrows(img_path, api_key="test-key", output_dir=str(tmp_path))
+    assert exc_info.value.code == 1
 
     assert (tmp_path / "test_api_error.txt").exists()

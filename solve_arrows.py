@@ -153,6 +153,8 @@ def detect_arrows(image_path: str, api_key: str, output_dir: str | None = None) 
             sys.exit(1)
 
     return validate_arrows(arrows, img_w, img_h)
+
+
 def blocks_arrow(a: dict, b: dict) -> bool:
     """Return True if arrow b is in the travel path of arrow a."""
     if a is b:
@@ -167,6 +169,8 @@ def blocks_arrow(a: dict, b: dict) -> bool:
     if direction == "down":
         return abs(a["x"] - b["x"]) <= AXIS_TOLERANCE and b["y"] > a["y"]
     return False
+
+
 def solve_order(arrows: list[dict]) -> tuple[list[dict], list[dict]]:
     """
     Return (ordered_tap_list, stuck_arrows).
@@ -191,6 +195,8 @@ def solve_order(arrows: list[dict]) -> tuple[list[dict], list[dict]]:
         remaining = [r for r in remaining if id(r) not in unblocked_ids]
 
     return ordered, []
+
+
 def build_autoinput_action(act_idx: int, x: int, y: int) -> str:
     """Build an AutoInput Tap action XML string for coordinates (x, y)."""
     uid = str(uuid.uuid4())
@@ -235,6 +241,8 @@ def build_autoinput_action(act_idx: int, x: int, y: int) -> str:
 \t\t\t<Int sr="arg3" val="60"/>
 \t\t\t<Int sr="arg4" val="1"/>
 \t\t</Action>"""
+
+
 def build_wait_action(act_idx: int, delay_ms: int) -> str:
     return f"""\t\t<Action sr="act{act_idx}" ve="7">
 \t\t\t<code>30</code>
@@ -277,7 +285,11 @@ def build_tasker_xml(task_name: str, tap_order: list[dict], delay_ms: int) -> st
 {actions_xml}
 \t</Task>
 </TaskerData>"""
+
+
 def draw_visualization(image_path: str, tap_order: list[dict], out_path: str) -> None: ...
+
+
 def main() -> None: ...
 
 if __name__ == "__main__":
