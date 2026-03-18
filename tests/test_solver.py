@@ -35,13 +35,13 @@ def test_blocks_down():
 def test_tolerance_within():
     """Arrow within AXIS_TOLERANCE on perpendicular axis counts as blocking."""
     a = make_arrow(100, 200, "right")
-    b = make_arrow(300, 215, "up")      # 15px off on y — within 20px tolerance
+    b = make_arrow(300, 203, "up")      # 3px off on y — within 5px tolerance
     assert blocks_arrow(a, b) is True
 
 def test_tolerance_outside():
     """Arrow beyond AXIS_TOLERANCE does not block."""
     a = make_arrow(100, 200, "right")
-    b = make_arrow(300, 225, "up")      # 25px off on y — beyond 20px tolerance
+    b = make_arrow(300, 206, "up")      # 6px off on y — beyond 5px tolerance
     assert blocks_arrow(a, b) is False
 
 def test_arrow_does_not_block_itself():

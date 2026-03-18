@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image
 
 CLAUDE_MODEL = "claude-opus-4-6"
-AXIS_TOLERANCE = 15  # px — perpendicular-axis alignment threshold (~1.4% of 1080px width)
+AXIS_TOLERANCE = 5  # px — perpendicular-axis alignment threshold (~0.5% of 1080px width)
 
 DIRECTION_COLORS_BGR = {
     "right": (0, 200, 0),
